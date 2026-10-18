@@ -6,7 +6,7 @@
 - [x] 0.1 Создать проект Next.js + Tailwind, подключить Git и GitHub
 - [ ] 0.2 Создать проект в Supabase, добавить ключи в `.env.local`
 - [ ] 0.3 Создать Telegram-бота через @BotFather; создать 4 чата (по точке), добавить бота, сохранить chat_id каждого
-- [ ] 0.4 Положить логотип `assets/gorkiy_logo.png` в `public/logo.png` (использовать только этот файл, не перерисовывать)
+- [x] 0.4 Положить логотип `assets/gorkiy_logo.png` в `public/logo.png` (использовать только этот файл, не перерисовывать)
 
 ## Этап 1. База данных
 - [ ] 1.1 SQL-схема: locations, profiles, categories, menu_items, option_groups, options
@@ -57,3 +57,4 @@
 
 ## Лог (дописывать после каждой сессии)
 - 0.1: Создан проект Next.js + Tailwind CSS, инициализирован репозиторий Git и подключён GitHub (lololo12344/gorkiy-site).
+- 0.4: Скопирован оригинальный логотип assets/gorkiy_logo.png в public/logo.png.
