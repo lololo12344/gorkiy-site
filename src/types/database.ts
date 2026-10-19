@@ -35,6 +35,7 @@ export type OptionGroup = {
   min_select: number;
   max_select: number;
   sort_order: number;
+  category_ids?: string[];
   options?: OptionItem[];
 };
 

@@ -12,14 +12,12 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ item, onOpenModal }: ProductCardProps) {
-  const { currentLocation, locationItemSettings } = useApp();
+  const { currentLocation, stopList, priceOverrides } = useApp();
 
-  // Check if item is available at current location
-  const setting = locationItemSettings.find(
-    (s) => s.location_id === currentLocation.id && s.item_id === item.id
-  );
-  const isAvailable = setting ? setting.is_available : item.is_active;
-  const effectivePrice = setting?.price_override ?? item.base_price;
+  // Check if item is in stop-list or active
+  const isStopped = (stopList[currentLocation.id] || []).includes(item.id);
+  const isAvailable = item.is_active && !isStopped;
+  const effectivePrice = priceOverrides[currentLocation.id]?.[item.id] ?? item.base_price;
 
   return (
     <div

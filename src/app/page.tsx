@@ -22,9 +22,5 @@ function MainContent() {
 }
 
 export default function Home() {
-  return (
-    <AppProvider>
-      <MainContent />
-    </AppProvider>
-  );
+  return <MainContent />;
 }

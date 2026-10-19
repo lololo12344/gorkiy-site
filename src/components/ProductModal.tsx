@@ -12,29 +12,28 @@ interface ProductModalProps {
 }
 
 export function ProductModal({ item, onClose }: ProductModalProps) {
-  const { optionGroups, categories, addToCart, currentLocation, locationItemSettings } = useApp();
+  const { optionGroups, categories, addToCart, currentLocation, priceOverrides } = useApp();
   const [quantity, setQuantity] = useState(1);
-
-  // Check if item belongs to drink categories
-  const isDrink = useMemo(() => {
-    if (!item) return false;
-    const cat = categories.find((c) => c.id === item.category_id);
-    if (!cat) return false;
-    return ['Классические напитки', 'Авторские напитки', 'Холодные напитки'].includes(cat.name);
-  }, [item, categories]);
 
   // Available option groups for this item
   const relevantOptionGroups = useMemo(() => {
-    if (!isDrink) return [];
-    return optionGroups;
-  }, [isDrink, optionGroups]);
+    if (!item) return [];
+    const cat = categories.find((c) => c.id === item.category_id);
+    const isDrinkCat = cat && ['Классические напитки', 'Авторские напитки', 'Холодные напитки', 'Чаи'].includes(cat.name);
+
+    return optionGroups.filter((group) => {
+      if (group.category_ids && group.category_ids.length > 0) {
+        return group.category_ids.includes(item.category_id);
+      }
+      return isDrinkCat;
+    });
+  }, [item, categories, optionGroups]);
 
   // Selected options state: Record<groupId, OptionItem[]>
   const [selectedOptionsMap, setSelectedOptionsMap] = useState<Record<string, SelectedOption[]>>(() => {
-    // Default selection for required groups (like Volume)
     const defaults: Record<string, SelectedOption[]> = {};
-    if (isDrink && optionGroups.length > 0) {
-      const volumeGroup = optionGroups.find((g) => g.name === 'Объем');
+    if (item && optionGroups.length > 0) {
+      const volumeGroup = optionGroups.find((g) => g.name.toLowerCase().includes('объем') || g.name.toLowerCase().includes('размер'));
       if (volumeGroup && volumeGroup.options && volumeGroup.options[0]) {
         const firstOpt = volumeGroup.options[0];
         defaults[volumeGroup.id] = [
@@ -53,10 +52,7 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
 
   if (!item) return null;
 
-  const setting = locationItemSettings.find(
-    (s) => s.location_id === currentLocation.id && s.item_id === item.id
-  );
-  const basePrice = setting?.price_override ?? item.base_price;
+  const basePrice = priceOverrides[currentLocation.id]?.[item.id] ?? item.base_price;
 
   const handleToggleOption = (
     group: (typeof optionGroups)[0],
