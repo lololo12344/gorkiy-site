@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { X, Minus, Plus, Check } from 'lucide-react';
 import { MenuItem, SelectedOption } from '@/types/database';
 import { useApp } from '@/context/AppContext';
+import { getAssetUrl } from '@/lib/utils/asset';
 
 interface ProductModalProps {
   item: MenuItem | null;
@@ -151,7 +152,7 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
           <div className="relative aspect-4/3 w-full bg-neutral-100">
             {item.image_url ? (
               <img
-                src={item.image_url}
+                src={getAssetUrl(item.image_url)}
                 alt={item.name}
                 className="w-full h-full object-cover"
               />

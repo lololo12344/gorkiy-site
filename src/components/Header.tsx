@@ -4,6 +4,7 @@ import React from 'react';
 import Image from 'next/image';
 import { MapPin, ChevronDown, UtensilsCrossed, User } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import { getAssetUrl } from '@/lib/utils/asset';
 
 export function Header() {
   const {
@@ -24,7 +25,7 @@ export function Header() {
           aria-label="На главную"
         >
           <img
-            src="/logo.png"
+            src={getAssetUrl('/logo.png')}
             alt="ГОРЬКИЙ"
             className="h-7 sm:h-8 md:h-9 w-auto object-contain block"
           />

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { X, Minus, Plus, Trash2, MapPin, ArrowRight } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { CheckoutModal } from '@/components/CheckoutModal';
+import { getAssetUrl } from '@/lib/utils/asset';
 
 export function CartModal() {
   const {
@@ -77,7 +78,7 @@ export function CartModal() {
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-neutral-200 shrink-0">
                     {cartItem.item.image_url ? (
                       <img
-                        src={cartItem.item.image_url}
+                        src={getAssetUrl(cartItem.item.image_url)}
                         alt={cartItem.item.name}
                         className="w-full h-full object-cover"
                       />

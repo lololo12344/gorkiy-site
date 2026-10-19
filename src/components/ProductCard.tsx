@@ -4,6 +4,7 @@ import React from 'react';
 import { Plus } from 'lucide-react';
 import { MenuItem } from '@/types/database';
 import { useApp } from '@/context/AppContext';
+import { getAssetUrl } from '@/lib/utils/asset';
 
 interface ProductCardProps {
   item: MenuItem;
@@ -34,7 +35,7 @@ export function ProductCard({ item, onOpenModal }: ProductCardProps) {
         <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-neutral-100 mb-3">
           {item.image_url ? (
             <img
-              src={item.image_url}
+              src={getAssetUrl(item.image_url)}
               alt={item.name}
               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
               loading="lazy"
