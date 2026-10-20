@@ -26,6 +26,8 @@ export type MenuItem = {
   is_active: boolean;
   sort_order: number;
   created_at?: string;
+  allowed_option_group_ids?: string[];
+  is_recipe_fixed?: boolean;
 };
 
 export type OptionGroup = {

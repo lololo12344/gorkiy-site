@@ -134,27 +134,27 @@ export function CartModal() {
                   </div>
 
                   {/* Quantity controls */}
-                  <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-xl p-0.5 min-[360px]:p-1 shrink-0">
+                  <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-xl p-1 shrink-0">
                     <button
                       onClick={() => updateCartQuantity(cartItem.cartItemId, -1)}
-                      className="w-6 h-6 min-[360px]:w-7 min-[360px]:h-7 rounded-lg flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors active:scale-95"
+                      className="w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 rounded-lg flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors active:scale-95"
                       aria-label="Уменьшить количество"
                     >
                       {cartItem.quantity === 1 ? (
-                        <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                        <Trash2 className="w-4 h-4 text-red-500" />
                       ) : (
-                        <Minus className="w-3.5 h-3.5" />
+                        <Minus className="w-4 h-4" />
                       )}
                     </button>
-                    <span className="min-w-[1.25rem] text-center text-xs font-bold text-neutral-800 px-0.5 select-none">
+                    <span className="min-w-[1.5rem] text-center text-xs sm:text-sm font-bold text-neutral-800 px-1 select-none">
                       {cartItem.quantity}
                     </span>
                     <button
                       onClick={() => updateCartQuantity(cartItem.cartItemId, 1)}
-                      className="w-6 h-6 min-[360px]:w-7 min-[360px]:h-7 rounded-lg flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors active:scale-95"
+                      className="w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 rounded-lg flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors active:scale-95"
                       aria-label="Увеличить количество"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </div>
                 </div>

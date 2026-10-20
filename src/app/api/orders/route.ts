@@ -102,8 +102,8 @@ export async function POST(req: Request) {
       });
     }
 
-    if (sanitizedItems.length === 0) {
-      return NextResponse.json({ error: 'Корзина пуста' }, { status: 422 });
+    if (sanitizedItems.length === 0 || calculatedTotal <= 0) {
+      return NextResponse.json({ error: 'Корзина пуста или содержит некорректную сумму' }, { status: 422 });
     }
 
     // Первичный ключ генерируется СЕРВЕРОМ, клиенту не доверяем!

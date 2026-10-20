@@ -167,7 +167,9 @@ export default function AdminPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'admin12345' || password === 'admin' || password === 'gorkiy') {
+    const envPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
+    const validPasswords = envPass ? [envPass, 'admin12345', 'admin', 'gorkiy'] : ['admin12345', 'admin', 'gorkiy'];
+    if (validPasswords.includes(password.trim())) {
       setIsAuthenticated(true);
       setLoginError('');
     } else {
@@ -729,6 +731,8 @@ export default function AdminPage() {
                     image_url: '/logo.png',
                     is_active: true,
                     sort_order: menuItems.length + 1,
+                    is_recipe_fixed: false,
+                    allowed_option_group_ids: optionGroups.map((g) => g.id),
                   })
                 }
                 className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#111111] text-white text-xs sm:text-sm font-bold hover:bg-neutral-800 transition-colors shadow-xs"
@@ -878,6 +882,30 @@ export default function AdminPage() {
                                 Описание не заполнено
                               </span>
                             )}
+                            {item.is_recipe_fixed ? (
+                              <div className="mt-1">
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-neutral-100 text-neutral-600 border border-neutral-200">
+                                  Фиксированный рецепт
+                                </span>
+                              </div>
+                            ) : Array.isArray(item.allowed_option_group_ids) ? (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {item.allowed_option_group_ids.length === 0 ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-neutral-100 text-neutral-500">
+                                    Без опций
+                                  </span>
+                                ) : (
+                                  item.allowed_option_group_ids.map((gid) => {
+                                    const g = optionGroups.find((og) => og.id === gid);
+                                    return g ? (
+                                      <span key={gid} className="text-[10px] px-1.5 py-0.2 rounded bg-neutral-100 text-neutral-700 font-medium border border-neutral-200">
+                                        {g.name}
+                                      </span>
+                                    ) : null;
+                                  })
+                                )}
+                              </div>
+                            ) : null}
                           </td>
 
                           {/* Category Selector */}
@@ -1917,6 +1945,127 @@ export default function AdminPage() {
                     </span>
                   </label>
                 </div>
+              </div>
+
+              {/* Управление модификаторами и опциями напитка (размеры, молоко, сиропы) */}
+              <div className="pt-3 border-t border-neutral-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-neutral-900 uppercase tracking-wider">
+                    Опции и модификаторы
+                  </label>
+                  <span className="text-[11px] text-neutral-400">
+                    Размеры, молоко, сиропы, добавки
+                  </span>
+                </div>
+
+                {/* Чекбокс: Фиксированный рецепт */}
+                <div className="p-3 bg-neutral-50 rounded-2xl border border-neutral-200/80">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!editingItem.is_recipe_fixed}
+                      onChange={(e) => {
+                        const isFixed = e.target.checked;
+                        setEditingItem({
+                          ...editingItem,
+                          is_recipe_fixed: isFixed,
+                          allowed_option_group_ids: isFixed
+                            ? []
+                            : editingItem.allowed_option_group_ids && editingItem.allowed_option_group_ids.length > 0
+                            ? editingItem.allowed_option_group_ids
+                            : optionGroups.map((g) => g.id),
+                        });
+                      }}
+                      className="mt-0.5 rounded text-neutral-900 w-4 h-4"
+                    />
+                    <div>
+                      <div className="text-xs font-bold text-neutral-900">
+                        Фиксированный рецепт (без модификаторов)
+                      </div>
+                      <div className="text-[11px] text-neutral-500 mt-0.5 leading-snug">
+                        Отключает выбор объемов, видов молока и сиропов (для эспрессо, фильтра или позиций с жесткой рецептурой).
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Индивидуальные тумблеры групп опций (если рецепт не фиксирован) */}
+                {!editingItem.is_recipe_fixed && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-xs text-neutral-600">
+                      <span className="font-semibold text-neutral-700">Включенные модификаторы:</span>
+                      <div className="flex gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingItem({
+                              ...editingItem,
+                              allowed_option_group_ids: optionGroups.map((g) => g.id),
+                            })
+                          }
+                          className="text-neutral-900 font-bold hover:underline"
+                        >
+                          Включить все
+                        </button>
+                        <span>·</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingItem({
+                              ...editingItem,
+                              allowed_option_group_ids: [],
+                            })
+                          }
+                          className="text-red-600 font-bold hover:underline"
+                        >
+                          Отключить все
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {optionGroups.map((group) => {
+                        const isCurrentlyAllowed = editingItem.allowed_option_group_ids
+                          ? editingItem.allowed_option_group_ids.includes(group.id)
+                          : true;
+
+                        return (
+                          <label
+                            key={group.id}
+                            className={`p-2.5 rounded-xl border text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                              isCurrentlyAllowed
+                                ? 'border-[#111111] bg-neutral-50 font-bold text-neutral-900 shadow-2xs'
+                                : 'border-neutral-200 text-neutral-400 hover:border-neutral-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isCurrentlyAllowed}
+                                onChange={(e) => {
+                                  const baseList =
+                                    editingItem.allowed_option_group_ids ?? optionGroups.map((g) => g.id);
+                                  const updated = e.target.checked
+                                    ? [...baseList, group.id]
+                                    : baseList.filter((id) => id !== group.id);
+                                  setEditingItem({
+                                    ...editingItem,
+                                    allowed_option_group_ids: updated,
+                                  });
+                                }}
+                                className="rounded text-neutral-900 w-3.5 h-3.5"
+                              />
+                              <span className="truncate">{group.name}</span>
+                            </div>
+                            <span className="text-[10px] text-neutral-400 font-normal shrink-0 ml-1">
+                              {group.options?.length || 0} вар.
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 pt-3 border-t border-neutral-100">

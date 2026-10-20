@@ -22,6 +22,20 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
   // Available option groups for this item
   const relevantOptionGroups = useMemo(() => {
     if (!item) return [];
+
+    // 1. Если рецепт фиксирован или явно задан пустой список опций
+    if (item.is_recipe_fixed || (Array.isArray(item.allowed_option_group_ids) && item.allowed_option_group_ids.length === 0)) {
+      return [];
+    }
+
+    // 2. Если в админ-панели индивидуально настроен белый список опций для этой позиции
+    if (Array.isArray(item.allowed_option_group_ids) && item.allowed_option_group_ids.length > 0) {
+      return optionGroups
+        .filter((group) => item.allowed_option_group_ids!.includes(group.id))
+        .sort((a, b) => a.sort_order - b.sort_order);
+    }
+
+    // 3. Стандартная привязка по категориям (для обратной совместимости)
     const cat = categories.find((c) => c.id === item.category_id);
     const isDrinkCat = cat && ['Классические напитки', 'Авторские напитки', 'Холодные напитки', 'Чаи'].includes(cat.name);
 
@@ -205,6 +219,13 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
                 <p className="text-sm text-neutral-500 mt-2 leading-relaxed">
                   {item.description}
                 </p>
+              )}
+
+              {item.is_recipe_fixed && (
+                <div className="mt-3 p-3 bg-neutral-50 rounded-2xl border border-neutral-100 text-xs text-neutral-600 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-500 shrink-0" />
+                  <span className="font-medium">Фиксированный рецепт: подается в классическом виде без модификаторов</span>
+                </div>
               )}
             </div>
 

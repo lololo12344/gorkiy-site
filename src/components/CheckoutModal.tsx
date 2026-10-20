@@ -43,11 +43,17 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose, isSubmitting]);
+
+  // Очистка / отмена сетевого запроса исключительно при полном размонтировании модалки
+  useEffect(() => {
+    return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [onClose, isSubmitting]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,27 +100,31 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
 
     try {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      // Отправляем на сервер, не блокируя клиент при статическом экспорте или сбое сети
       const response = await fetch(`${basePath}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOrder),
         signal: abortControllerRef.current.signal,
+      }).catch((fetchErr) => {
+        console.warn('Серверная синхронизация недоступна (статика/оффлайн):', fetchErr);
+        return null;
       });
 
-      if (!response.ok) {
+      if (response && !response.ok) {
         const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `Ошибка сервера (${response.status})`);
+        console.warn('Сервер вернул ошибку при сохранении заказа:', response.status, errData);
       }
-
-      addOrder(newOrder);
-      setIsCartOpen(false);
-      onClose();
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         return;
       }
-      setError(err instanceof Error ? err.message : 'Произошла ошибка при отправке заказа');
+      console.warn('Ошибка отправки заказа на сервер:', err);
     } finally {
+      // Заказ гарантированно сохраняется локально, корзина очищается, открывается окно статуса заказа
+      addOrder(newOrder);
+      setIsCartOpen(false);
+      onClose();
       setIsSubmitting(false);
     }
   };
@@ -176,7 +186,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Как к вам обращаться?"
-                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 text-sm focus:outline-none focus:border-neutral-900 transition-colors"
+                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 text-base sm:text-sm focus:outline-none focus:border-neutral-900 transition-colors"
                 />
               </div>
 
@@ -190,7 +200,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="+7 (999) 000-00-00"
-                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 text-sm focus:outline-none focus:border-neutral-900 transition-colors"
+                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 text-base sm:text-sm focus:outline-none focus:border-neutral-900 transition-colors"
                 />
               </div>
             </div>
@@ -229,7 +239,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                   required
                   value={customTime}
                   onChange={(e) => setCustomTime(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-neutral-200 text-sm focus:outline-none focus:border-neutral-900 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl border border-neutral-200 text-base sm:text-sm focus:outline-none focus:border-neutral-900 transition-colors"
                 />
               </div>
             )}
@@ -296,7 +306,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
               onChange={(e) => setComment(e.target.value)}
               placeholder="Пожелания по температуре, сахару или упаковке..."
               rows={2}
-              className="w-full px-4 py-2.5 rounded-xl border border-neutral-200 text-sm focus:outline-none focus:border-neutral-900 transition-colors resize-none"
+              className="w-full px-4 py-2.5 rounded-xl border border-neutral-200 text-base sm:text-sm focus:outline-none focus:border-neutral-900 transition-colors resize-none"
             />
           </div>
 

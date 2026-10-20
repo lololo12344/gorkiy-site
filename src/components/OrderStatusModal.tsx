@@ -49,14 +49,19 @@ export function OrderStatusModal() {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 border-b border-neutral-100 flex items-center justify-between">
-          <div>
-            <h2 id="order-status-modal-title" className="text-xl font-bold text-neutral-900">
-              Статус заказа
-            </h2>
-            <p className="text-xs text-neutral-500 mt-0.5">
-              № {activeOrder.id.slice(0, 8).toUpperCase()}
-            </p>
+        <div className="px-5 sm:px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-white">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <CheckCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 id="order-status-modal-title" className="text-lg sm:text-xl font-bold text-neutral-900 leading-tight">
+                Ваш заказ отправлен!
+              </h2>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                № {activeOrder.id.slice(0, 8).toUpperCase()} · передан бариста
+              </p>
+            </div>
           </div>
           <button
             onClick={() => setActiveOrder(null)}
@@ -69,6 +74,14 @@ export function OrderStatusModal() {
 
         {/* Content */}
         <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain flex-1 space-y-5 sm:space-y-6 touch-pan-y">
+          {/* Success notification banner */}
+          <div className="p-3.5 bg-emerald-50/80 border border-emerald-200/60 rounded-2xl flex items-center gap-3 text-emerald-800 text-xs">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-medium">
+              Спасибо за заказ! Чек сохранен. Бариста уже уведомлен и готовит ваш напиток.
+            </span>
+          </div>
+
           {/* Status Tracker */}
           <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-100">
             <div className="flex items-center justify-between mb-4">

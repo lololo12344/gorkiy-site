@@ -5,6 +5,12 @@ import { MapPin, ChevronDown, UtensilsCrossed, User } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { getAssetUrl } from '@/lib/utils/asset';
 
+function formatHeaderLocationName(name: string): string {
+  if (!name) return '';
+  // Отсекаем префикс «Горький », чтобы название точки служило естественным продолжением логотипа («ГОРЬКИЙ · на Арбате»)
+  return name.replace(/^горький\s+/i, '').trim();
+}
+
 export function Header() {
   const {
     activeTab,
@@ -39,7 +45,7 @@ export function Header() {
           >
             <MapPin className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
             <span className="truncate max-w-[15ch] min-[360px]:max-w-[20ch] sm:max-w-[28ch]">
-              {currentLocation.name}
+              {formatHeaderLocationName(currentLocation.name)}
             </span>
             <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
           </button>

@@ -464,11 +464,13 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
     "id": "dddddddd-0000-0000-0000-00000000001a",
     "category_id": "cccccccc-0000-0000-0000-000000000007",
     "name": "Эспрессо",
-    "description": "",
+    "description": "Классический насыщенный эспрессо. Подается без добавок и модификаторов.",
     "base_price": 220,
     "image_url": "/menu/item_675680498442.jpg",
     "is_active": true,
-    "sort_order": 26
+    "sort_order": 26,
+    "is_recipe_fixed": true,
+    "allowed_option_group_ids": []
   },
   {
     "id": "dddddddd-0000-0000-0000-00000000001b",
