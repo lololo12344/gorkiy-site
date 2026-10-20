@@ -1,115 +1,225 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { Order } from '@/types/database';
+import { createAdminSupabaseClient, createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  checkRateLimit,
+  escapeTelegramHtml,
+  sanitizeString,
+  resolveSafeChatId,
+  isAllowedPaymentMethod,
+} from '@/lib/security/validator';
 
 export async function POST(req: Request) {
   try {
-    const order: Order = await req.json();
+    // 1. Защита от DoS: Rate limiting (максимум 10 заказов в минуту с одного IP)
+    const clientIp =
+      req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+      req.headers.get('x-real-ip') ||
+      '127.0.0.1';
 
-    // 1. Try saving to Supabase if configured
+    const rateCheck = checkRateLimit(clientIp, 10, 60 * 1000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Слишком много запросов. Подождите немного перед следующим заказом.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateCheck.retryAfter || 60) },
+        }
+      );
+    }
+
+    // 2. Безопасный парсинг тела запроса
+    let body: any;
     try {
-      const supabase = await createServerSupabaseClient();
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Некорректный JSON в теле запроса' }, { status: 400 });
+    }
+
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Некорректное тело запроса' }, { status: 400 });
+    }
+
+    // 3. Строгая валидация и санитарная обработка текстовых полей
+    const customerName = sanitizeString(body.customer_name, 80);
+    const customerPhone = sanitizeString(body.customer_phone, 30);
+    const comment = sanitizeString(body.comment, 300);
+    const pickupTime = sanitizeString(body.pickup_time, 50, 'Как можно скорее');
+    const locationId = sanitizeString(body.location_id, 50);
+    const locationName = sanitizeString(body.location?.name, 100);
+
+    if (!customerName || !customerPhone) {
+      return NextResponse.json(
+        { error: 'Имя и номер телефона обязательны для оформления заказа' },
+        { status: 422 }
+      );
+    }
+
+    // 4. Проверка метода оплаты (строгий белый список)
+    const paymentMethod = isAllowedPaymentMethod(body.payment_method)
+      ? body.payment_method
+      : 'card_terminal';
+
+    // 5. Валидация состава заказа (защита от пустых массивов, объектов и DoS-переполнения)
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      return NextResponse.json({ error: 'Заказ не может быть пустым' }, { status: 422 });
+    }
+
+    if (body.items.length > 30) {
+      return NextResponse.json(
+        { error: 'Превышен лимит позиций в одном заказе (максимум 30)' },
+        { status: 422 }
+      );
+    }
+
+    // Валидация каждого элемента: защита от отрицательных чисел и некорректных типов
+    const sanitizedItems = [];
+    let calculatedTotal = 0;
+
+    for (const rawItem of body.items) {
+      if (!rawItem || typeof rawItem !== 'object') continue;
+
+      const itemName = sanitizeString(rawItem.item_name, 100, 'Товар');
+      // Количество строго от 1 до 50 целых единиц
+      const quantity = Math.max(1, Math.min(50, Math.floor(Number(rawItem.quantity) || 1)));
+      // Цена строго неотрицательное число
+      const price = Math.max(0, Math.min(100000, Number(rawItem.price) || 0));
+
+      const rawOptions = Array.isArray(rawItem.options) ? rawItem.options : [];
+      const options = rawOptions.slice(0, 10).map((opt: any) => ({
+        name: sanitizeString(opt?.name, 50),
+        priceDelta: Math.max(0, Number(opt?.priceDelta) || 0),
+      }));
+
+      calculatedTotal += price;
+
+      sanitizedItems.push({
+        id: crypto.randomUUID(),
+        item_id: sanitizeString(rawItem.item_id, 50),
+        item_name: itemName,
+        quantity,
+        options,
+        price,
+      });
+    }
+
+    if (sanitizedItems.length === 0) {
+      return NextResponse.json({ error: 'Корзина пуста' }, { status: 422 });
+    }
+
+    // Первичный ключ генерируется СЕРВЕРОМ, клиенту не доверяем!
+    const orderId = crypto.randomUUID();
+    const finalTotal = Math.max(0, Number(body.total) || calculatedTotal);
+
+    // 6. Сохранение в Supabase (со статусом 'new', не доверяя статусу от клиента)
+    try {
+      const supabase = createAdminSupabaseClient() || (await createServerSupabaseClient());
       if (supabase) {
         const { error: orderError } = await supabase.from('orders').insert({
-          id: order.id,
-          user_id: order.user_id,
-          location_id: order.location_id,
-          status: order.status,
-          payment_method: order.payment_method,
-          total: order.total,
-          pickup_time: order.pickup_time,
-          comment: order.comment,
-          customer_name: order.customer_name,
-          customer_phone: order.customer_phone,
+          id: orderId,
+          user_id: sanitizeString(body.user_id, 50) || null,
+          location_id: locationId || null,
+          status: 'new', // Статус принудительно 'new'!
+          payment_method: paymentMethod,
+          total: finalTotal,
+          pickup_time: pickupTime,
+          comment: comment,
+          customer_name: customerName,
+          customer_phone: customerPhone,
         });
 
-        if (!orderError && order.items && order.items.length > 0) {
-          const orderItemsData = order.items.map((it) => ({
+        if (orderError) {
+          console.error('Supabase order insert error:', orderError);
+        } else {
+          const orderItemsData = sanitizedItems.map((it) => ({
             id: it.id,
-            order_id: order.id,
-            item_id: it.item_id,
+            order_id: orderId,
+            item_id: it.item_id || null,
             item_name: it.item_name,
             quantity: it.quantity,
             options: it.options,
             price: it.price,
           }));
+
           await supabase.from('order_items').insert(orderItemsData);
         }
       }
     } catch (dbErr) {
-      console.warn('Supabase order insert error (skipped):', dbErr);
+      console.warn('Supabase DB error (skipped for offline fallback):', dbErr);
     }
 
-    // 2. Telegram notification to barista
+    // 7. Отправка уведомления в Telegram (с защитой от SSRF и экранированием HTML)
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-
-    // Map location to chat_id from env or order location
-    let chatId = order.location?.telegram_chat_id;
-    if (!chatId) {
-      if (order.location?.name?.includes('Арбат')) {
-        chatId = process.env.TELEGRAM_CHAT_ID_ARBAT;
-      } else if (order.location?.name?.includes('Ашуров')) {
-        chatId = process.env.TELEGRAM_CHAT_ID_ASHUROVA;
-      } else if (order.location?.name?.includes('Кулиев')) {
-        chatId = process.env.TELEGRAM_CHAT_ID_KULIEVA;
-      } else if (order.location?.name?.includes('Среда')) {
-        chatId = process.env.TELEGRAM_CHAT_ID_SREDA;
-      }
-    }
+    // КРИТИЧЕСКИ: Chat ID определяется только сервером по белому списку
+    const chatId = resolveSafeChatId(locationName);
 
     if (botToken && chatId) {
       const paymentText =
-        order.payment_method === 'cash'
+        paymentMethod === 'cash'
           ? '💵 НАЛИЧНЫМИ при получении'
           : '💳 КАРТОЙ НА ТЕРМИНАЛЕ';
 
-      const itemsText = order.items
-        ?.map((it) => {
-          const opts =
-            it.options && it.options.length > 0
-              ? ` (${it.options.map((o) => o.name).join(', ')})`
-              : '';
-          return `• <b>${it.quantity}x</b> ${it.item_name}${opts} — ${it.price} ₽`;
-        })
-        .join('\n');
+      const itemsLines = sanitizedItems.map((it) => {
+        const optsText =
+          it.options.length > 0
+            ? ` (${it.options.map((o: { name: string; priceDelta: number }) => escapeTelegramHtml(o.name)).join(', ')})`
+            : '';
+        return `• <b>${it.quantity}x</b> ${escapeTelegramHtml(it.item_name)}${optsText} — ${it.price} ₽`;
+      });
 
-      const messageText = `⚡️ <b>НОВЫЙ ЗАКАЗ</b> № <code>${order.id.slice(0, 8).toUpperCase()}</code>
+      const itemsText = itemsLines.join('\n');
 
-📍 <b>Точка:</b> ${order.location?.name}
-👤 <b>Гость:</b> ${order.customer_name} (${order.customer_phone})
-⏰ <b>Время:</b> ${order.pickup_time}
+      const messageText = `⚡️ <b>НОВЫЙ ЗАКАЗ</b> № <code>${orderId.slice(0, 8).toUpperCase()}</code>
+
+📍 <b>Точка:</b> ${escapeTelegramHtml(locationName || 'Не указана')}
+👤 <b>Гость:</b> ${escapeTelegramHtml(customerName)} (${escapeTelegramHtml(customerPhone)})
+⏰ <b>Время:</b> ${escapeTelegramHtml(pickupTime)}
 💰 <b>Оплата:</b> ${paymentText}
-${order.comment ? `💬 <b>Комментарий:</b> ${order.comment}\n` : ''}
+${comment ? `💬 <b>Комментарий:</b> ${escapeTelegramHtml(comment)}\n` : ''}
 <b>Состав:</b>
 ${itemsText}
 
-<b>Итого: ${order.total} ₽</b>`;
+<b>Итого: ${finalTotal} ₽</b>`;
+
+      // Соблюдение лимита Telegram (не более 4096 символов)
+      const safeMessageText =
+        messageText.length > 3900
+          ? `${messageText.slice(0, 3850)}\n...[список позиций сокращен]`
+          : messageText;
 
       const keyboard = {
         inline_keyboard: [
           [
-            { text: '👨‍🍳 Принял', callback_data: `status:${order.id}:accepted` },
-            { text: '✅ Готов', callback_data: `status:${order.id}:ready` },
-            { text: '❌ Отменить', callback_data: `status:${order.id}:cancelled` },
+            { text: '👨‍🍳 Принял', callback_data: `status:${orderId}:accepted` },
+            { text: '✅ Готов', callback_data: `status:${orderId}:ready` },
+            { text: '❌ Отменить', callback_data: `status:${orderId}:cancelled` },
           ],
         ],
       };
 
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: messageText,
-          parse_mode: 'HTML',
-          reply_markup: keyboard,
-        }),
-      });
+      try {
+        const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: safeMessageText,
+            parse_mode: 'HTML',
+            reply_markup: keyboard,
+          }),
+        });
+
+        if (!tgRes.ok) {
+          const errData = await tgRes.text();
+          console.error('Telegram API error:', tgRes.status, errData);
+        }
+      } catch (tgErr) {
+        console.error('Telegram network failure:', tgErr);
+      }
     }
 
-    return NextResponse.json({ success: true, orderId: order.id });
+    return NextResponse.json({ success: true, orderId });
   } catch (error: any) {
     console.error('Order API error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Внутренняя ошибка сервера' }, { status: 500 });
   }
 }

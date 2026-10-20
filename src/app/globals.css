@@ -25,32 +25,34 @@ body {
   scrollbar-width: none;
 }
 
-/* Base button styles matching SPEC.md */
-.btn-gorkiy-primary {
-  background-color: #111111;
-  color: #ffffff;
-  border-radius: 16px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-.btn-gorkiy-primary:hover {
-  background-color: #262626;
-}
-.btn-gorkiy-primary:active {
-  transform: scale(0.98);
-}
+/* Base button styles matching SPEC.md inside components layer for Tailwind v4 compatibility */
+@layer components {
+  .btn-gorkiy-primary {
+    background-color: #111111;
+    color: #ffffff;
+    border-radius: 16px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  .btn-gorkiy-primary:hover {
+    background-color: #262626;
+  }
+  .btn-gorkiy-primary:active {
+    transform: scale(0.98);
+  }
 
-.btn-gorkiy-outline {
-  background-color: #ffffff;
-  color: #111111;
-  border: 2px solid #111111;
-  border-radius: 16px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-.btn-gorkiy-outline:hover {
-  background-color: #f5f5f5;
-}
-.btn-gorkiy-outline:active {
-  transform: scale(0.98);
+  .btn-gorkiy-outline {
+    background-color: #ffffff;
+    color: #111111;
+    border: 2px solid #111111;
+    border-radius: 16px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  .btn-gorkiy-outline:hover {
+    background-color: #f5f5f5;
+  }
+  .btn-gorkiy-outline:active {
+    transform: scale(0.98);
+  }
 }

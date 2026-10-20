@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Location,
   Category,
@@ -31,6 +31,8 @@ interface AppContextType {
   setCategories: React.Dispatch<React.SetStateAction<Category[]>>;
   menuItems: MenuItem[];
   setMenuItems: React.Dispatch<React.SetStateAction<MenuItem[]>>;
+  isLoadingMenuItems: boolean;
+  menuError: string | null;
   optionGroups: OptionGroup[];
   setOptionGroups: React.Dispatch<React.SetStateAction<OptionGroup[]>>;
   stopList: Record<string, string[]>;
@@ -39,7 +41,7 @@ interface AppContextType {
   setPriceOverrides: React.Dispatch<React.SetStateAction<Record<string, Record<string, number>>>>;
   locationItemSettings: LocationItemSetting[];
   cart: CartItem[];
-  addToCart: (item: MenuItem, quantity: number, options: SelectedOption[]) => void;
+  addToCart: (item: MenuItem, quantity: number, options: SelectedOption[], targetLocationId?: string) => void;
   updateCartQuantity: (cartItemId: string, delta: number) => void;
   removeFromCart: (cartItemId: string) => void;
   clearCart: () => void;
@@ -69,6 +71,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentLocation, setCurrentLocationState] = useState<Location>(INITIAL_LOCATIONS[0]);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(INITIAL_MENU_ITEMS);
+  const [isLoadingMenuItems, setIsLoadingMenuItems] = useState(false);
+  const [menuError, setMenuError] = useState<string | null>(null);
   const [optionGroups, setOptionGroups] = useState<OptionGroup[]>(INITIAL_OPTION_GROUPS);
   const [stopList, setStopList] = useState<Record<string, string[]>>({});
   const [priceOverrides, setPriceOverrides] = useState<Record<string, Record<string, number>>>({});
@@ -82,7 +86,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
 
-  // Load state from localStorage on initial render
+  // Флаг гидратации для предотвращения перезаписи сохранённых данных моками на старте
+  const isHydratedRef = useRef(false);
+
+  // 1. Чтение из localStorage при старте
   useEffect(() => {
     try {
       const savedCategories = localStorage.getItem('gorkiy_categories');
@@ -101,9 +108,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const savedLocations = localStorage.getItem('gorkiy_locations');
+      let currentLocs = INITIAL_LOCATIONS;
       if (savedLocations) {
-        const parsed = JSON.parse(savedLocations);
-        setLocations(parsed);
+        currentLocs = JSON.parse(savedLocations);
+        setLocations(currentLocs);
       }
 
       const savedStopList = localStorage.getItem('gorkiy_stop_list');
@@ -118,11 +126,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const savedLocationId = localStorage.getItem('gorkiy_selected_location');
       if (savedLocationId) {
-        const list = savedLocations ? JSON.parse(savedLocations) : INITIAL_LOCATIONS;
-        const found = list.find((l: Location) => l.id === savedLocationId);
+        const found = currentLocs.find((l: Location) => l.id === savedLocationId);
         if (found) setCurrentLocationState(found);
       } else {
-        // First visit -> open location selector
         setIsLocationModalOpen(true);
       }
 
@@ -141,77 +147,125 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setProfile(JSON.parse(savedProfile));
       }
     } catch (e) {
-      console.warn('LocalStorage error:', e);
+      console.warn('LocalStorage load error:', e);
+    } finally {
+      isHydratedRef.current = true;
     }
   }, []);
 
-  // Sync customizable data to localStorage whenever modified
+  // 2. Синхронизация данных с localStorage только ПОСЛЕ завершения гидратации
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_categories', JSON.stringify(categories));
     } catch {}
   }, [categories]);
 
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_menu_items', JSON.stringify(menuItems));
     } catch {}
   }, [menuItems]);
 
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_option_groups', JSON.stringify(optionGroups));
     } catch {}
   }, [optionGroups]);
 
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_locations', JSON.stringify(locations));
     } catch {}
   }, [locations]);
 
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_stop_list', JSON.stringify(stopList));
     } catch {}
   }, [stopList]);
 
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_price_overrides', JSON.stringify(priceOverrides));
     } catch {}
   }, [priceOverrides]);
 
-  // Sync cart to localStorage
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_cart', JSON.stringify(cart));
     } catch {}
   }, [cart]);
 
-  // Sync orders to localStorage
   useEffect(() => {
+    if (!isHydratedRef.current) return;
     try {
       localStorage.setItem('gorkiy_orders', JSON.stringify(orders));
     } catch {}
   }, [orders]);
 
-  // If Supabase is connected, optionally fetch items
+  useEffect(() => {
+    if (!isHydratedRef.current) return;
+    try {
+      if (profile) {
+        localStorage.setItem('gorkiy_profile', JSON.stringify(profile));
+      } else {
+        localStorage.removeItem('gorkiy_profile');
+      }
+    } catch {}
+  }, [profile]);
+
+  // 3. Безопасный асинхронный запрос к Supabase с отменой (AbortController)
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) return;
 
-    supabase
-      .from('menu_items')
-      .select('*')
-      .then(({ data }) => {
+    const controller = new AbortController();
+    setIsLoadingMenuItems(true);
+    setMenuError(null);
+
+    async function fetchMenuItems() {
+      try {
+        const { data, error } = await supabase!
+          .from('menu_items')
+          .select('*')
+          .abortSignal(controller.signal);
+
+        if (controller.signal.aborted) return;
+
+        if (error) {
+          console.error('Supabase fetch error:', error);
+          setMenuError(error.message);
+          return;
+        }
+
         if (data && data.length > 0) {
           setMenuItems(data);
         }
-      });
+      } catch (err: any) {
+        if (controller.signal.aborted) return;
+        setMenuError(err?.message || 'Ошибка загрузки меню');
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingMenuItems(false);
+        }
+      }
+    }
+
+    fetchMenuItems();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
-  const resetToDefaults = () => {
+  const resetToDefaults = useCallback(() => {
     localStorage.removeItem('gorkiy_categories');
     localStorage.removeItem('gorkiy_menu_items');
     localStorage.removeItem('gorkiy_option_groups');
@@ -225,65 +279,74 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setStopList({});
     setPriceOverrides({});
     setCurrentLocationState(INITIAL_LOCATIONS[0]);
-  };
+  }, []);
 
-  const setCurrentLocation = (newLoc: Location, force = false): boolean => {
-    if (newLoc.id === currentLocation.id) {
+  const setCurrentLocation = useCallback(
+    (newLoc: Location, force = false): boolean => {
+      if (newLoc.id === currentLocation.id) {
+        setIsLocationModalOpen(false);
+        return true;
+      }
+
+      if (cart.length > 0 && !force) {
+        return false;
+      }
+
+      if (cart.length > 0 && force) {
+        setCart([]);
+      }
+
+      setCurrentLocationState(newLoc);
+      try {
+        localStorage.setItem('gorkiy_selected_location', newLoc.id);
+      } catch {}
       setIsLocationModalOpen(false);
       return true;
-    }
+    },
+    [currentLocation.id, cart.length]
+  );
 
-    if (cart.length > 0 && !force) {
-      return false;
-    }
+  const addToCart = useCallback(
+    (item: MenuItem, quantity: number, options: SelectedOption[], targetLocationId?: string) => {
+      const locId = targetLocationId || currentLocation.id;
+      const effectiveBasePrice = priceOverrides[locId]?.[item.id] ?? item.base_price;
+      const optionsDelta = options.reduce((sum, opt) => sum + opt.priceDelta, 0);
+      const unitPrice = effectiveBasePrice + optionsDelta;
+      const sortedOptionIds = [...options].map((o) => o.optionId).sort().join('_');
+      const cartItemId = `${item.id}-${sortedOptionIds}`;
 
-    if (cart.length > 0 && force) {
-      setCart([]);
-    }
+      setCart((prev) => {
+        const existing = prev.find((ci) => ci.cartItemId === cartItemId);
+        if (existing) {
+          return prev.map((ci) =>
+            ci.cartItemId === cartItemId
+              ? {
+                  ...ci,
+                  quantity: ci.quantity + quantity,
+                  totalPrice: (ci.quantity + quantity) * unitPrice,
+                }
+              : ci
+          );
+        }
+        return [
+          ...prev,
+          {
+            cartItemId,
+            item,
+            quantity,
+            selectedOptions: options,
+            unitPrice,
+            totalPrice: unitPrice * quantity,
+          },
+        ];
+      });
+    },
+    [currentLocation.id, priceOverrides]
+  );
 
-    setCurrentLocationState(newLoc);
-    localStorage.setItem('gorkiy_selected_location', newLoc.id);
-    setIsLocationModalOpen(false);
-    return true;
-  };
-
-  const addToCart = (item: MenuItem, quantity: number, options: SelectedOption[]) => {
-    const effectiveBasePrice = priceOverrides[currentLocation.id]?.[item.id] ?? item.base_price;
-    const optionsDelta = options.reduce((sum, opt) => sum + opt.priceDelta, 0);
-    const unitPrice = effectiveBasePrice + optionsDelta;
-    const sortedOptionIds = [...options].map((o) => o.optionId).sort().join('_');
-    const cartItemId = `${item.id}-${sortedOptionIds}`;
-
-    setCart((prev) => {
-      const existing = prev.find((ci) => ci.cartItemId === cartItemId);
-      if (existing) {
-        return prev.map((ci) =>
-          ci.cartItemId === cartItemId
-            ? {
-                ...ci,
-                quantity: ci.quantity + quantity,
-                totalPrice: (ci.quantity + quantity) * unitPrice,
-              }
-            : ci
-        );
-      }
-      return [
-        ...prev,
-        {
-          cartItemId,
-          item,
-          quantity,
-          selectedOptions: options,
-          unitPrice,
-          totalPrice: unitPrice * quantity,
-        },
-      ];
-    });
-  };
-
-  const updateCartQuantity = (cartItemId: string, delta: number) => {
-    setCart((prev) => {
-      return prev
+  const updateCartQuantity = useCallback((cartItemId: string, delta: number) => {
+    setCart((prev) =>
+      prev
         .map((ci) => {
           if (ci.cartItemId === cartItemId) {
             const newQty = ci.quantity + delta;
@@ -295,79 +358,112 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           return ci;
         })
-        .filter((ci) => ci.quantity > 0);
-    });
-  };
+        .filter((ci) => ci.quantity > 0)
+    );
+  }, []);
 
-  const removeFromCart = (cartItemId: string) => {
+  const removeFromCart = useCallback((cartItemId: string) => {
     setCart((prev) => prev.filter((ci) => ci.cartItemId !== cartItemId));
-  };
+  }, []);
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setCart([]);
-  };
+  }, []);
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.totalPrice, 0), [cart]);
+  const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
 
-  const addOrder = (order: Order) => {
+  const addOrder = useCallback((order: Order) => {
     setOrders((prev) => [order, ...prev]);
     setActiveOrder(order);
-    clearCart();
-  };
+    setCart([]);
+  }, []);
 
-  const updateOrderStatus = (orderId: string, status: Order['status']) => {
+  // Устранена Stale Closure в activeOrder
+  const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status } : o))
     );
-    if (activeOrder && activeOrder.id === orderId) {
-      setActiveOrder((prev) => (prev ? { ...prev, status } : null));
-    }
-  };
+    setActiveOrder((prev) => (prev && prev.id === orderId ? { ...prev, status } : prev));
+  }, []);
+
+  const contextValue = useMemo<AppContextType>(
+    () => ({
+      activeTab,
+      setActiveTab,
+      locations,
+      setLocations,
+      currentLocation,
+      setCurrentLocation,
+      categories,
+      setCategories,
+      menuItems,
+      setMenuItems,
+      isLoadingMenuItems,
+      menuError,
+      optionGroups,
+      setOptionGroups,
+      stopList,
+      setStopList,
+      priceOverrides,
+      setPriceOverrides,
+      locationItemSettings,
+      cart,
+      addToCart,
+      updateCartQuantity,
+      removeFromCart,
+      clearCart,
+      cartTotal,
+      cartCount,
+      isLocationModalOpen,
+      setIsLocationModalOpen,
+      isCartOpen,
+      setIsCartOpen,
+      selectedProductForModal,
+      setSelectedProductForModal,
+      profile,
+      setProfile,
+      orders,
+      addOrder,
+      updateOrderStatus,
+      activeOrder,
+      setActiveOrder,
+      resetToDefaults,
+    }),
+    [
+      activeTab,
+      locations,
+      currentLocation,
+      setCurrentLocation,
+      categories,
+      menuItems,
+      isLoadingMenuItems,
+      menuError,
+      optionGroups,
+      stopList,
+      priceOverrides,
+      locationItemSettings,
+      cart,
+      addToCart,
+      updateCartQuantity,
+      removeFromCart,
+      clearCart,
+      cartTotal,
+      cartCount,
+      isLocationModalOpen,
+      isCartOpen,
+      selectedProductForModal,
+      profile,
+      orders,
+      addOrder,
+      updateOrderStatus,
+      activeOrder,
+      resetToDefaults,
+    ]
+  );
 
   return (
-    <AppContext.Provider
-      value={{
-        activeTab,
-        setActiveTab,
-        locations,
-        setLocations,
-        currentLocation,
-        setCurrentLocation,
-        categories,
-        setCategories,
-        menuItems,
-        setMenuItems,
-        optionGroups,
-        setOptionGroups,
-        stopList,
-        setStopList,
-        priceOverrides,
-        setPriceOverrides,
-        locationItemSettings,
-        cart,
-        addToCart,
-        updateCartQuantity,
-        removeFromCart,
-        clearCart,
-        cartTotal,
-        cartCount,
-        isLocationModalOpen,
-        setIsLocationModalOpen,
-        isCartOpen,
-        setIsCartOpen,
-        selectedProductForModal,
-        setSelectedProductForModal,
-        profile,
-        setProfile,
-        orders,
-        addOrder,
-        updateOrderStatus,
-        activeOrder,
-        setActiveOrder,
-        resetToDefaults,
-      }}
-    >
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );

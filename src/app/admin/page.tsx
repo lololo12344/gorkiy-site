@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -29,11 +29,16 @@ import {
   Filter,
   Check,
   X,
-  Sparkles
+  Sparkles,
+  Camera,
+  Loader2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { Category, MenuItem, OptionGroup, OptionItem, Location } from '@/types/database';
 import { getAssetUrl } from '@/lib/utils/asset';
+import { processImageFile } from '@/lib/utils/image';
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 
 type AdminMainTab = 'items' | 'categories' | 'options' | 'locations' | 'backup';
 
@@ -85,10 +90,79 @@ export default function AdminPage() {
 
   // Feedback notifications
   const [feedbackMsg, setFeedbackMsg] = useState('');
+  const feedbackTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Фото и загрузка изображений с устройств (телефон / планшет / ПК)
+  const modalFileInputRef = useRef<HTMLInputElement | null>(null);
+  const inlineFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [inlineTargetItemId, setInlineTargetItemId] = useState<string | null>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [showManualUrlInput, setShowManualUrlInput] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  // Блокировка фонового скролла при открытых модалках админки
+  useBodyScrollLock(!!editingItem || !!editingCategory);
+
+  const handleModalImageFile = async (file: File) => {
+    if (!editingItem) return;
+    try {
+      setIsProcessingImage(true);
+      const compressedDataUrl = await processImageFile(file);
+      setEditingItem((prev) => (prev ? { ...prev, image_url: compressedDataUrl } : null));
+      showFeedback('Фото загружено и оптимизировано');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Ошибка обработки фото';
+      showFeedback(msg);
+    } finally {
+      setIsProcessingImage(false);
+      if (modalFileInputRef.current) {
+        modalFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleInlineImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !inlineTargetItemId) return;
+    try {
+      setIsProcessingImage(true);
+      const compressedDataUrl = await processImageFile(file);
+      setMenuItems((prev) =>
+        prev.map((item) =>
+          item.id === inlineTargetItemId ? { ...item, image_url: compressedDataUrl } : item
+        )
+      );
+      showFeedback('Фото позиции успешно обновлено');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Ошибка обработки фото';
+      showFeedback(msg);
+    } finally {
+      setIsProcessingImage(false);
+      setInlineTargetItemId(null);
+      if (inlineFileInputRef.current) {
+        inlineFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const triggerInlineUpload = (itemId: string) => {
+    setInlineTargetItemId(itemId);
+    inlineFileInputRef.current?.click();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    };
+  }, []);
 
   const showFeedback = (msg: string) => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     setFeedbackMsg(msg);
-    setTimeout(() => setFeedbackMsg(''), 3000);
+    feedbackTimerRef.current = setTimeout(() => {
+      setFeedbackMsg('');
+      feedbackTimerRef.current = null;
+    }, 3000);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -105,14 +179,15 @@ export default function AdminPage() {
      1. CATEGORIES MANAGEMENT (Add, Reorder Up/Down, Edit, Delete)
      ========================================================================= */
   const moveCategory = (index: number, delta: number) => {
-    const targetIndex = index + delta;
-    if (targetIndex < 0 || targetIndex >= categories.length) return;
-    const copy = [...categories];
-    const temp = copy[index];
-    copy[index] = copy[targetIndex];
-    copy[targetIndex] = temp;
-    const reordered = copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
-    setCategories(reordered);
+    setCategories((prev) => {
+      const targetIndex = index + delta;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
+    });
     showFeedback('Порядок категорий изменён');
   };
 
@@ -175,25 +250,25 @@ export default function AdminPage() {
   }, [menuItems, itemCategoryFilter, itemSearchQuery, categories]);
 
   const moveItemInCategory = (item: MenuItem, delta: number) => {
-    const itemsInCat = menuItems
-      .filter((i) => i.category_id === item.category_id)
-      .sort((a, b) => a.sort_order - b.sort_order);
+    setMenuItems((prev) => {
+      const itemsInCat = prev
+        .filter((i) => i.category_id === item.category_id)
+        .sort((a, b) => a.sort_order - b.sort_order);
 
-    const currentIndex = itemsInCat.findIndex((i) => i.id === item.id);
-    const targetIndex = currentIndex + delta;
-    if (targetIndex < 0 || targetIndex >= itemsInCat.length) return;
+      const currentIndex = itemsInCat.findIndex((i) => i.id === item.id);
+      const targetIndex = currentIndex + delta;
+      if (targetIndex < 0 || targetIndex >= itemsInCat.length) return prev;
 
-    const targetItem = itemsInCat[targetIndex];
-    const tempOrder = item.sort_order;
-    const targetOrder = targetItem.sort_order === tempOrder ? targetIndex + 1 : targetItem.sort_order;
+      const targetItem = itemsInCat[targetIndex];
+      const tempOrder = item.sort_order;
+      const targetOrder = targetItem.sort_order === tempOrder ? targetIndex + 1 : targetItem.sort_order;
 
-    setMenuItems((prev) =>
-      prev.map((i) => {
+      return prev.map((i) => {
         if (i.id === item.id) return { ...i, sort_order: targetOrder };
         if (i.id === targetItem.id) return { ...i, sort_order: tempOrder };
         return i;
-      })
-    );
+      });
+    });
     showFeedback('Порядок блюда изменён');
   };
 
@@ -249,14 +324,15 @@ export default function AdminPage() {
      3. OPTION GROUPS & CUSTOMIZATIONS (Volumes, Milk, Syrups, Add-ons)
      ========================================================================= */
   const moveOptionGroup = (index: number, delta: number) => {
-    const targetIndex = index + delta;
-    if (targetIndex < 0 || targetIndex >= optionGroups.length) return;
-    const copy = [...optionGroups];
-    const temp = copy[index];
-    copy[index] = copy[targetIndex];
-    copy[targetIndex] = temp;
-    const reordered = copy.map((g, i) => ({ ...g, sort_order: i + 1 }));
-    setOptionGroups(reordered);
+    setOptionGroups((prev) => {
+      const targetIndex = index + delta;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy.map((g, i) => ({ ...g, sort_order: i + 1 }));
+    });
     showFeedback('Порядок групп опций изменён');
   };
 
@@ -345,21 +421,21 @@ export default function AdminPage() {
   };
 
   const moveOptionItem = (groupId: string, optIndex: number, delta: number) => {
-    const group = optionGroups.find((g) => g.id === groupId);
-    if (!group || !group.options) return;
+    setOptionGroups((prev) => {
+      const group = prev.find((g) => g.id === groupId);
+      if (!group || !group.options) return prev;
 
-    const targetIndex = optIndex + delta;
-    if (targetIndex < 0 || targetIndex >= group.options.length) return;
+      const targetIndex = optIndex + delta;
+      if (targetIndex < 0 || targetIndex >= group.options.length) return prev;
 
-    const copy = [...group.options];
-    const temp = copy[optIndex];
-    copy[optIndex] = copy[targetIndex];
-    copy[targetIndex] = temp;
-    const reordered = copy.map((o, i) => ({ ...o, sort_order: i + 1 }));
+      const copy = [...group.options];
+      const temp = copy[optIndex];
+      copy[optIndex] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      const reordered = copy.map((o, i) => ({ ...o, sort_order: i + 1 }));
 
-    setOptionGroups((prev) =>
-      prev.map((g) => (g.id === groupId ? { ...g, options: reordered } : g))
-    );
+      return prev.map((g) => (g.id === groupId ? { ...g, options: reordered } : g));
+    });
     showFeedback('Порядок вариантов изменён');
   };
 
@@ -433,8 +509,10 @@ export default function AdminPage() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `gorkiy-menu-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
     showFeedback('Файл резервной копии скачан');
   };
 
@@ -705,6 +783,14 @@ export default function AdminPage() {
               </div>
 
               <div className="overflow-x-auto">
+                {/* Скрытый инпут для быстрой смены фото из таблицы */}
+                <input
+                  ref={inlineFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleInlineImageSelect}
+                />
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-neutral-200 text-neutral-400 text-xs bg-neutral-50/50">
@@ -753,9 +839,14 @@ export default function AdminPage() {
                             </div>
                           </td>
 
-                          {/* Image Thumbnail */}
+                          {/* Image Thumbnail with quick 1-click change */}
                           <td className="py-3 px-3">
-                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-neutral-100 shrink-0 border border-neutral-200">
+                            <button
+                              type="button"
+                              onClick={() => triggerInlineUpload(item.id)}
+                              className="relative group w-12 h-12 rounded-xl overflow-hidden bg-neutral-100 shrink-0 border border-neutral-200 block text-left transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 cursor-pointer"
+                              title="Нажмите, чтобы заменить фото с телефона или ПК"
+                            >
                               {item.image_url ? (
                                 <img
                                   src={getAssetUrl(item.image_url)}
@@ -763,11 +854,14 @@ export default function AdminPage() {
                                   className="w-full h-full object-cover"
                                 />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-400">
-                                  —
+                                <div className="w-full h-full flex items-center justify-center text-neutral-400 bg-neutral-50">
+                                  <Camera className="w-4 h-4 text-neutral-400" />
                                 </div>
                               )}
-                            </div>
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                <Camera className="w-4 h-4" />
+                              </div>
+                            </button>
                           </td>
 
                           {/* Name & Description */}
@@ -1645,28 +1739,132 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {/* Photo Upload with Phone / Camera / File support */}
               <div>
-                <label className="block text-xs font-semibold text-neutral-600 mb-1">
-                  URL фотографии
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-neutral-700">
+                    Фотография блюда / карточки
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualUrlInput(!showManualUrlInput)}
+                    className="text-xs text-neutral-400 hover:text-neutral-800 transition-colors"
+                  >
+                    {showManualUrlInput ? 'Скрыть URL' : 'Указать ссылку (URL)'}
+                  </button>
+                </div>
+
                 <input
-                  type="text"
-                  placeholder="/menu/item_xxx.jpg или ссылка"
-                  value={editingItem.image_url}
-                  onChange={(e) =>
-                    setEditingItem({ ...editingItem, image_url: e.target.value })
-                  }
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-neutral-300 focus:outline-none focus:border-neutral-900"
+                  ref={modalFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleModalImageFile(f);
+                  }}
                 />
-                {/* Photo preview */}
-                {editingItem.image_url && (
-                  <div className="mt-2 flex items-center gap-3">
-                    <img
-                      src={getAssetUrl(editingItem.image_url)}
-                      alt="Превью"
-                      className="w-16 h-16 rounded-xl object-cover border border-neutral-200"
+
+                {/* Dropzone & Preview Box */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingOver(true);
+                  }}
+                  onDragLeave={() => setIsDraggingOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) handleModalImageFile(f);
+                  }}
+                  className={`relative rounded-2xl border-2 transition-all overflow-hidden ${
+                    isDraggingOver
+                      ? 'border-neutral-900 bg-neutral-100'
+                      : 'border-dashed border-neutral-300 hover:border-neutral-400 bg-neutral-50/60'
+                  }`}
+                >
+                  {isProcessingImage ? (
+                    <div className="py-12 flex flex-col items-center justify-center gap-2 text-neutral-600">
+                      <Loader2 className="w-7 h-7 animate-spin text-neutral-900" />
+                      <span className="text-xs font-semibold">Сжатие и обработка фото...</span>
+                    </div>
+                  ) : editingItem.image_url ? (
+                    <div className="relative group aspect-16/9 w-full bg-neutral-100">
+                      <img
+                        src={getAssetUrl(editingItem.image_url)}
+                        alt="Превью"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-3">
+                        <button
+                          type="button"
+                          onClick={() => modalFileInputRef.current?.click()}
+                          className="px-3.5 py-2 rounded-xl bg-white text-neutral-900 text-xs font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-transform"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Выбрать другое фото</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingItem({ ...editingItem, image_url: '' })}
+                          className="p-2 rounded-xl bg-red-600 text-white shadow-md active:scale-95 transition-transform hover:bg-red-700"
+                          title="Удалить фото"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Mobile action buttons (always visible on touch screens) */}
+                      <div className="sm:hidden absolute bottom-2 right-2 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => modalFileInputRef.current?.click()}
+                          className="px-2.5 py-1.5 rounded-xl bg-black/80 backdrop-blur-xs text-white text-xs font-bold flex items-center gap-1 shadow-md active:scale-95"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Заменить</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingItem({ ...editingItem, image_url: '' })}
+                          className="p-1.5 rounded-xl bg-red-600/90 text-white shadow-md active:scale-95"
+                          title="Удалить"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => modalFileInputRef.current?.click()}
+                      className="py-8 px-4 flex flex-col items-center justify-center cursor-pointer text-center group hover:bg-neutral-100/50 transition-colors"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-neutral-200/80 group-hover:bg-neutral-900 group-hover:text-white text-neutral-700 flex items-center justify-center transition-colors mb-2.5">
+                        <Camera className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-bold text-neutral-900">
+                        Выбрать фото с телефона или компьютера
+                      </span>
+                      <span className="text-[11px] text-neutral-400 mt-1">
+                        Камера, галерея смартфона или перетаскивание файлов
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Manual URL Input */}
+                {showManualUrlInput && (
+                  <div className="mt-2 animate-in fade-in">
+                    <input
+                      type="text"
+                      placeholder="https://... или /menu/item_xxx.jpg"
+                      value={editingItem.image_url}
+                      onChange={(e) =>
+                        setEditingItem({ ...editingItem, image_url: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-neutral-900"
                     />
-                    <span className="text-xs text-neutral-500">Предпросмотр фото</span>
                   </div>
                 )}
               </div>

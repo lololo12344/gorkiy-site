@@ -10,7 +10,7 @@ export function CartButton() {
   if (cartCount === 0 || activeTab !== 'menu') return null;
 
   return (
-    <div className="fixed bottom-18 md:bottom-6 left-0 right-0 z-30 px-4 pointer-events-none flex justify-center">
+    <div className="fixed bottom-18 md:bottom-6 left-0 right-0 z-35 px-4 pointer-events-none flex justify-center">
       <button
         onClick={() => setIsCartOpen(true)}
         className="pointer-events-auto max-w-md w-full bg-[#111111] text-white py-3.5 px-5 rounded-2xl flex items-center justify-between shadow-xl hover:bg-neutral-800 active:scale-98 transition-all animate-in slide-in-from-bottom duration-300"

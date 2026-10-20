@@ -7,14 +7,9 @@ import {
   Clock,
   Navigation,
   RotateCcw,
-  User,
   LogOut,
-  ChevronRight,
-  Heart,
-  MessageSquare
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { LocationModal } from '@/components/LocationModal';
 
 export function ProfileView() {
   const {
@@ -33,7 +28,6 @@ export function ProfileView() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [nameInput, setNameInput] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
-  const [emailInput, setEmailInput] = useState('');
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,12 +38,16 @@ export function ProfileView() {
       is_admin: false,
     };
     setProfile(newProfile);
-    localStorage.setItem('gorkiy_profile', JSON.stringify(newProfile));
+    try {
+      localStorage.setItem('gorkiy_profile', JSON.stringify(newProfile));
+    } catch {}
   };
 
   const handleLogout = () => {
     setProfile(null);
-    localStorage.removeItem('gorkiy_profile');
+    try {
+      localStorage.removeItem('gorkiy_profile');
+    } catch {}
   };
 
   const handleRepeatOrder = (order: (typeof orders)[0]) => {
@@ -59,11 +57,11 @@ export function ProfileView() {
       if (loc) setCurrentLocation(loc, true);
     }
 
-    // Add items back to cart
+    // Add items back to cart with the order's location ID for correct price calculation
     order.items?.forEach((it) => {
       const menuItem = menuItems.find((m) => m.id === it.item_id);
       if (menuItem) {
-        addToCart(menuItem, it.quantity, it.options || []);
+        addToCart(menuItem, it.quantity, it.options || [], order.location_id);
       }
     });
 
@@ -124,7 +122,7 @@ export function ProfileView() {
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 required
-                className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-white text-sm focus:border-[#111111] focus:outline-none"
+                className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-white text-base sm:text-sm focus:border-[#111111] focus:outline-none"
               />
             )}
             <input
@@ -133,7 +131,7 @@ export function ProfileView() {
               value={phoneInput}
               onChange={(e) => setPhoneInput(e.target.value)}
               required
-              className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-white text-sm focus:border-[#111111] focus:outline-none"
+              className="w-full px-4 py-3 rounded-xl border border-neutral-200 bg-white text-base sm:text-sm focus:border-[#111111] focus:outline-none"
             />
             <button
               type="submit"
@@ -165,7 +163,7 @@ export function ProfileView() {
                     <span className="font-bold text-sm text-neutral-900">
                       {ord.location?.name || 'Горький'}
                     </span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 font-semibold text-neutral-700">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 font-semibold text-neutral-700">
                       {ord.status === 'new' && 'Принят'}
                       {ord.status === 'accepted' && 'Готовится'}
                       {ord.status === 'ready' && 'Готов'}
@@ -225,7 +223,7 @@ export function ProfileView() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-4 text-xs text-neutral-500">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500 pt-0.5">
                   <span className="flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-neutral-400" />
                     {loc.hours}
@@ -268,15 +266,13 @@ export function ProfileView() {
             className="text-xs text-neutral-500 hover:text-neutral-900 font-semibold inline-flex items-center gap-1 transition-colors"
           >
             <span>Хочу в команду</span>
-            <span className="text-[10px] text-neutral-400">(WhatsApp +7 988 933-42-33)</span>
+            <span className="text-xs text-neutral-400">(WhatsApp +7 988 933-42-33)</span>
           </a>
         </div>
-        <p className="text-[11px] text-neutral-400 uppercase tracking-widest font-semibold">
+        <p className="text-xs text-neutral-400 uppercase tracking-widest font-semibold">
           © GORKIY COFFEE {new Date().getFullYear()}
         </p>
       </footer>
-
-      <LocationModal />
     </div>
   );
 }

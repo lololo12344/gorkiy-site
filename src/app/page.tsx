@@ -1,11 +1,13 @@
 'use client';
 
 import React from 'react';
-import { AppProvider, useApp } from '@/context/AppContext';
+import { useApp } from '@/context/AppContext';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { MenuView } from '@/components/MenuView';
 import { ProfileView } from '@/components/ProfileView';
+import { LocationModal } from '@/components/LocationModal';
+import { OrderStatusModal } from '@/components/OrderStatusModal';
 
 function MainContent() {
   const { activeTab } = useApp();
@@ -17,6 +19,10 @@ function MainContent() {
         {activeTab === 'menu' ? <MenuView /> : <ProfileView />}
       </div>
       <BottomNav />
+
+      {/* Глобальные модальные окна, доступные со всех вкладок */}
+      <LocationModal />
+      <OrderStatusModal />
     </div>
   );
 }

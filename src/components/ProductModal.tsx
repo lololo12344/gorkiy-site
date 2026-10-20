@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Minus, Plus, Check } from 'lucide-react';
 import { MenuItem, SelectedOption } from '@/types/database';
 import { useApp } from '@/context/AppContext';
 import { getAssetUrl } from '@/lib/utils/asset';
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 
 interface ProductModalProps {
   item: MenuItem | null;
@@ -14,6 +15,9 @@ interface ProductModalProps {
 export function ProductModal({ item, onClose }: ProductModalProps) {
   const { optionGroups, categories, addToCart, currentLocation, priceOverrides } = useApp();
   const [quantity, setQuantity] = useState(1);
+
+  // Намертво блокируем фоновый скролл (в т.ч. на iOS Safari)
+  useBodyScrollLock(!!item);
 
   // Available option groups for this item
   const relevantOptionGroups = useMemo(() => {
@@ -29,11 +33,13 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
     });
   }, [item, categories, optionGroups]);
 
-  // Selected options state: Record<groupId, OptionItem[]>
-  const [selectedOptionsMap, setSelectedOptionsMap] = useState<Record<string, SelectedOption[]>>(() => {
+  // Compute default volume/size options
+  const defaultOptions = useMemo(() => {
     const defaults: Record<string, SelectedOption[]> = {};
-    if (item && optionGroups.length > 0) {
-      const volumeGroup = optionGroups.find((g) => g.name.toLowerCase().includes('объем') || g.name.toLowerCase().includes('размер'));
+    if (item && relevantOptionGroups.length > 0) {
+      const volumeGroup = relevantOptionGroups.find((g) =>
+        g.name.toLowerCase().includes('объем') || g.name.toLowerCase().includes('размер')
+      );
       if (volumeGroup && volumeGroup.options && volumeGroup.options[0]) {
         const firstOpt = volumeGroup.options[0];
         defaults[volumeGroup.id] = [
@@ -48,7 +54,31 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
       }
     }
     return defaults;
-  });
+  }, [item, relevantOptionGroups]);
+
+  const [selectedOptionsMap, setSelectedOptionsMap] = useState<Record<string, SelectedOption[]>>(defaultOptions);
+
+  // Сброс модификаторов и количества при смене выбранного товара
+  useEffect(() => {
+    if (item) {
+      setQuantity(1);
+      setSelectedOptionsMap(defaultOptions);
+    }
+  }, [item?.id, defaultOptions]);
+
+  // Закрытие по Escape (a11y)
+  useEffect(() => {
+    if (!item) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [item, onClose]);
 
   if (!item) return null;
 
@@ -126,24 +156,27 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="product-modal-title"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 touch-none overscroll-contain select-none"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-md max-h-[88vh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl relative animate-in slide-in-from-bottom duration-300"
+        className="bg-white w-full sm:max-w-md max-h-[88dvh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl relative animate-in slide-in-from-bottom duration-300 touch-auto select-text overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-colors"
+          className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 active:scale-95 text-white flex items-center justify-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           aria-label="Закрыть"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Scrollable content */}
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto overscroll-contain flex-1 touch-pan-y">
           {/* Large image */}
           <div className="relative aspect-4/3 w-full bg-neutral-100">
             {item.image_url ? (
@@ -162,7 +195,10 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
           <div className="p-5 sm:p-6 space-y-6">
             {/* Title, description & base price */}
             <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-neutral-900 leading-tight">
+              <h2
+                id="product-modal-title"
+                className="text-xl sm:text-2xl font-bold text-neutral-900 leading-tight"
+              >
                 {item.name}
               </h2>
               {item.description && (
@@ -181,7 +217,7 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
                     <span className="font-bold text-sm text-neutral-900">
                       {group.name}
                     </span>
-                    <span className="text-xs text-neutral-400">
+                    <span className="text-xs text-neutral-400 font-medium">
                       {group.is_required
                         ? 'Обязательно'
                         : group.max_select > 1
@@ -198,7 +234,7 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
                           key={opt.id}
                           type="button"
                           onClick={() => handleToggleOption(group, opt)}
-                          className={`w-full p-3 rounded-xl border text-sm font-medium flex items-center justify-between transition-all ${
+                          className={`w-full p-3 rounded-xl border text-sm font-medium flex items-center justify-between transition-all active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${
                             isSelected
                               ? 'border-[#111111] bg-neutral-50 shadow-2xs'
                               : 'border-neutral-200 hover:border-neutral-300'
@@ -208,8 +244,8 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
                             <div
                               className={`w-4 h-4 rounded-full flex items-center justify-center border transition-colors ${
                                 isSelected
-                                  ? 'bg-[#111111] border-[#111111] text-white'
-                                  : 'border-neutral-300'
+                                    ? 'bg-[#111111] border-[#111111] text-white'
+                                    : 'border-neutral-300'
                               }`}
                             >
                               {isSelected && <Check className="w-3 h-3" />}
@@ -233,22 +269,22 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
         </div>
 
         {/* Footer actions: quantity & add button */}
-        <div className="p-4 sm:p-5 border-t border-neutral-100 bg-white flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-neutral-100 rounded-2xl p-1 shrink-0">
+        <div className="p-3.5 sm:p-5 border-t border-neutral-100 bg-white flex flex-col min-[380px]:flex-row items-stretch min-[380px]:items-center gap-3">
+          <div className="flex items-center justify-center gap-2 bg-neutral-100 rounded-2xl p-1 shrink-0 self-center min-[380px]:self-auto">
             <button
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
               disabled={quantity <= 1}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-neutral-700 hover:bg-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-neutral-700 hover:bg-white active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent disabled:active:scale-100 transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
               aria-label="Уменьшить"
             >
               <Minus className="w-4 h-4" />
             </button>
-            <span className="w-6 text-center font-bold text-sm text-neutral-900">
+            <span className="min-w-[1.75rem] text-center font-bold text-sm text-neutral-900 px-1 select-none">
               {quantity}
             </span>
             <button
               onClick={() => setQuantity((q) => q + 1)}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-neutral-700 hover:bg-white transition-colors"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-neutral-700 hover:bg-white active:scale-95 transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
               aria-label="Увеличить"
             >
               <Plus className="w-4 h-4" />
@@ -257,10 +293,10 @@ export function ProductModal({ item, onClose }: ProductModalProps) {
 
           <button
             onClick={handleAddToCart}
-            className="flex-1 py-3.5 px-4 rounded-2xl bg-[#111111] text-white font-bold text-sm sm:text-base flex items-center justify-between hover:bg-neutral-800 active:scale-98 transition-all shadow-md"
+            className="flex-1 py-3.5 px-4 rounded-2xl bg-[#111111] text-white font-bold text-sm sm:text-base flex items-center justify-between gap-2 hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
           >
-            <span>В корзину</span>
-            <span>{totalPrice} ₽</span>
+            <span className="truncate">В корзину</span>
+            <span className="shrink-0 font-extrabold">{totalPrice} ₽</span>
           </button>
         </div>
       </div>

@@ -64,9 +64,9 @@ export function ProductCard({ item, onOpenModal }: ProductCardProps) {
       </div>
 
       {/* Price and Add button */}
-      <div className="flex items-center justify-between pt-2 mt-auto border-t border-neutral-50">
-        <div>
-          <span className="font-extrabold text-base sm:text-lg text-neutral-900">
+      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 mt-auto border-t border-neutral-50">
+        <div className="min-w-0 flex-1">
+          <span className="font-extrabold text-sm min-[360px]:text-base sm:text-lg text-neutral-900 break-words">
             {effectivePrice} ₽
           </span>
         </div>
@@ -77,7 +77,7 @@ export function ProductCard({ item, onOpenModal }: ProductCardProps) {
             e.stopPropagation();
             if (isAvailable) onOpenModal(item);
           }}
-          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
+          className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-all ${
             isAvailable
               ? 'bg-neutral-100 text-neutral-900 hover:bg-[#111111] hover:text-white active:scale-95'
               : 'bg-neutral-100 text-neutral-300 cursor-not-allowed'

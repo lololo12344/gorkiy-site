@@ -101,11 +101,11 @@ create table if not exists public.orders (
   location_id uuid references public.locations(id) on delete restrict,
   status text not null check (status in ('new', 'accepted', 'ready', 'done', 'cancelled')) default 'new',
   payment_method text not null check (payment_method in ('cash', 'card_terminal')),
-  total numeric not null default 0,
+  total numeric not null default 0 check (total >= 0),
   pickup_time text,
-  comment text default '',
-  customer_name text,
-  customer_phone text,
+  comment text default '' check (char_length(comment) <= 500),
+  customer_name text check (char_length(customer_name) <= 100),
+  customer_phone text check (char_length(customer_phone) <= 40),
   created_at timestamptz default now()
 );
 
@@ -115,10 +115,13 @@ create table if not exists public.order_items (
   order_id uuid references public.orders(id) on delete cascade,
   item_id uuid references public.menu_items(id) on delete set null,
   item_name text not null,
-  quantity int not null default 1,
+  quantity int not null default 1 check (quantity > 0 and quantity <= 100),
   options jsonb default '[]'::jsonb,
-  price numeric not null
+  price numeric not null check (price >= 0)
 );
+
+-- Индекс для быстрого поиска заказов и обновления статуса
+create index if not exists idx_orders_id_status on public.orders(id, status);
 
 -- ==============================================================================
 -- AUTOMATIC PROFILE TRIGGER ON SIGNUP
@@ -197,13 +200,19 @@ create policy "Users can view own profile" on public.profiles for select using (
 create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id or public.is_admin());
 create policy "Users can insert own profile" on public.profiles for insert with check (auth.uid() = id or public.is_admin());
 
--- Orders: public can create orders, users see their own, admins see all
+-- Orders: public can create orders, users see ONLY their own (authenticated), admins see all
 create policy "Anyone can insert orders" on public.orders for insert with check (true);
-create policy "Users can view their orders" on public.orders for select using (
-  auth.uid() = user_id or public.is_admin() or auth.uid() is null
+create policy "Users can view own orders" on public.orders for select using (
+  (auth.uid() is not null and auth.uid() = user_id) or public.is_admin()
 );
 create policy "Admins can update orders" on public.orders for update using (public.is_admin());
 
--- Order items: insertable by anyone, selectable with order
+-- Order items: insertable by anyone, selectable only by order owner or admin
 create policy "Anyone can insert order items" on public.order_items for insert with check (true);
-create policy "Anyone can view order items" on public.order_items for select using (true);
+create policy "Users can view own order items" on public.order_items for select using (
+  exists (
+    select 1 from public.orders o
+    where o.id = order_items.order_id
+      and ((auth.uid() is not null and auth.uid() = o.user_id) or public.is_admin())
+  )
+);
